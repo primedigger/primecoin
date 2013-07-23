@@ -14,9 +14,11 @@
 
 #define LOG2_DIGIT_BASE     32
 #define DIGIT_BASE          ((unsigned long long) 1 << (LOG2_DIGIT_BASE))
-#define DIGITS_CAPACITY     8
+#define DIGITS_CAPACITY     32
 
-typedef unsigned digit_t;
+//typedef unsigned digit_t;
+
+#define digit_t unsigned int
 
 __device__ __host__ inline void digits_print(digit_t *digits,
                                             unsigned num_digits) {

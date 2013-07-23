@@ -7,6 +7,8 @@
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 
+#include "mainkernel.h"
+
 /*CUDA errors must be checked on demand. This function fetches the last error code and logs an appropriate error message*/
 void checkForCudaError(const char* desc)
 {
@@ -509,7 +511,6 @@ static bool ProbableCunninghamChainTest(const mpz_class& n, bool fSophieGermain,
 //   false - prime chain too short (none of nChainLength meeting target)
 bool ProbablePrimeChainTest(const mpz_class& mpzPrimeChainOrigin, unsigned int nBits, bool fFermatTest, unsigned int& nChainLengthCunningham1, unsigned int& nChainLengthCunningham2, unsigned int& nChainLengthBiTwin)
 {
-
     nChainLengthCunningham1 = 0;
     nChainLengthCunningham2 = 0;
     nChainLengthBiTwin = 0;
@@ -531,21 +532,8 @@ bool ProbablePrimeChainTest(const mpz_class& mpzPrimeChainOrigin, unsigned int n
 // Sieve for mining
 boost::thread_specific_ptr<CSieveOfEratosthenes> psieve;
 
-struct cudaCandidateTransfer {
-    char strChainOrigin[256];
-    unsigned int blocknBits;
-    unsigned int nChainLengthCunningham1;
-    unsigned int nChainLengthCunningham2;
-    unsigned int nChainLengthBiTwin;
-};
-
-#define MAX_CANDIDATES 10000
-
-struct cudaCandidateTransfer cudaCandidateTransferArray[MAX_CANDIDATES];
+struct cudaCandidate cudaCandidateTransferArray[MAX_CANDIDATES];
 char resultsHost[MAX_CANDIDATES];
-
-//forward decl of run kernel
-void runCandidateSearchKernel(cudaCandidateTransfer *candidates, char *result, unsigned int num_candidates);
 
 // Mine probable prime chain of form: n = h * p# +/- 1
 bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& fNewBlock, unsigned int& nTriedMultiplier, unsigned int& nProbableChainLength, unsigned int& nTests, unsigned int& nPrimesHit, unsigned int& nChainsHit, mpz_class& mpzHash)
@@ -584,7 +572,7 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
     //Search for candidates in this loop and transfer them to the GPU. If something interesting is found, check the result on the CPU.
 
     int candidate_num = -1;
-    while (nCurrent - nStart < 10000 && nCurrent >= nStart && pindexPrev == pindexBest && candidate_num < MAX_CANDIDATES)
+    while (nCurrent - nStart < 30000 && nCurrent >= nStart && pindexPrev == pindexBest && candidate_num < MAX_CANDIDATES)
     {
         nTests++;
         if (!psieve->GetNextCandidateMultiplier(nTriedMultiplier))
@@ -592,9 +580,11 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
             // power tests completed for the sieve
             psieve.reset();
             fNewBlock = true; // notify caller to change nonce
+	    //should try candidates on GPU before leaving here
             return false;
         }
-        mpzChainOrigin = mpzHash * mpzFixedMultiplier * nTriedMultiplier;
+	mpz_class mpzPrimeChainMultiplier = mpzFixedMultiplier * nTriedMultiplier;
+        mpzChainOrigin = mpzHash * mpzPrimeChainMultiplier;
         unsigned int nChainLengthCunningham1 = 0;
         unsigned int nChainLengthCunningham2 = 0;
         unsigned int nChainLengthBiTwin = 0;
@@ -604,6 +594,8 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
 
         //copy candidate to transfer array
         mpz_get_str(cudaCandidateTransferArray[candidate_num].strChainOrigin,16,mpzChainOrigin.get_mpz_t());
+        mpz_get_str(cudaCandidateTransferArray[candidate_num].strPrimeChainMultiplier,16,mpzPrimeChainMultiplier.get_mpz_t());
+
         cudaCandidateTransferArray[candidate_num].blocknBits = block.nBits;
 
         //Apparantly we don't need these:
@@ -636,12 +628,12 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
 
     //FIXME: this is just for debugging, if condition should be replaced afterwards.
     //If we don't have this the client doesn't update the blockchain (because the CUDA part crashes right now)
-    if(candidate_num > 1000)
+    if(candidate_num > 100)
     {
-        cudaCandidateTransfer *cudaCandidateTransferArrayDevice = newDevicePointer<cudaCandidateTransfer>(candidate_num);
+        cudaCandidate *cudaCandidateTransferArrayDevice = newDevicePointer<cudaCandidate>(candidate_num);
         char *resultsDevice = newDevicePointer<char>(candidate_num);
         //memcpy to device
-        cudaMemcpy(cudaCandidateTransferArrayDevice, cudaCandidateTransferArray , sizeof(cudaCandidateTransfer)*candidate_num, cudaMemcpyHostToDevice);
+        cudaMemcpy(cudaCandidateTransferArrayDevice, cudaCandidateTransferArray , sizeof(cudaCandidate)*candidate_num, cudaMemcpyHostToDevice);
         checkForCudaError("cudaMemcpy: cudaMemcpyHostToDevice");
         runCandidateSearchKernel(cudaCandidateTransferArrayDevice, resultsDevice, candidate_num);
         checkForCudaError("launch kernel");
@@ -649,28 +641,35 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
         cudaMemcpy(resultsHost, resultsDevice, sizeof(char)*candidate_num, cudaMemcpyDeviceToHost);
         checkForCudaError("cudaMemcpy: cudaMemcpyDeviceToHost");
 
+	cudaFree(resultsDevice);
+	cudaFree(cudaCandidateTransferArrayDevice);
+
+	printf("CUDA kernel round done\n");
+	fflush(stdout);
+
         for(int i=0; i < candidate_num; i++)
         {
             //scan the result array for possible chains as determined by the GPU
             if(resultsHost[i]==0x01)
             {
+		printf("resultsHost[i]==0x01\n");
+		fflush(stdout);
                 unsigned int nChainLengthCunningham1 = 0;
                 unsigned int nChainLengthCunningham2 = 0;
                 unsigned int nChainLengthBiTwin = 0;
 
-                //TODO: impement this
-                /*mpzChainOrigin = //fetch origin from cudaCandidateTransferArray[i]
+                mpzChainOrigin.set_str(cudaCandidateTransferArray[i].strChainOrigin,16);
                 if (ProbablePrimeChainTest(mpzChainOrigin, block.nBits, false, nChainLengthCunningham1, nChainLengthCunningham2, nChainLengthBiTwin))
                 {
-                    mpz_class mpzPrimeChainMultiplier = mpzFixedMultiplier * nTriedMultiplier;
+                    //mpz_class mpzPrimeChainMultiplier = mpzFixedMultiplier * nTriedMultiplier;
                     CBigNum bnPrimeChainMultiplier;
-                    bnPrimeChainMultiplier.SetHex(mpzPrimeChainMultiplier.get_str(16));
+                    bnPrimeChainMultiplier.SetHex(cudaCandidateTransferArray[i].strPrimeChainMultiplier);
                     block.bnPrimeChainMultiplier = bnPrimeChainMultiplier;
-                    printf("Probable prime chain found for block=%s!!\n  Target: %s\n  Length: (%s %s %s)\n", block.GetHash().GetHex().c_str(),
+                    printf("[!] Probable prime chain found for block=%s!!\n  Target: %s\n  Length: (%s %s %s)\n", block.GetHash().GetHex().c_str(),
                     TargetToString(block.nBits).c_str(), TargetToString(nChainLengthCunningham1).c_str(), TargetToString(nChainLengthCunningham2).c_str(), TargetToString(nChainLengthBiTwin).c_str());
                     nProbableChainLength = std::max(std::max(nChainLengthCunningham1, nChainLengthCunningham2), nChainLengthBiTwin);
                     return true;
-                }*/
+                }
             }
         }
     }

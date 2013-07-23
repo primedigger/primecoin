@@ -21,7 +21,7 @@ inline __device__ __host__ int cuda_strlen(const char *str) {
 #define FL_OVERFLOW   4
 #define FL_READDIGIT  8
 
-#define ULONG_MAX     0xffffffffUL       // Maximum unsigned long value
+//#define ULONG_MAX     0xffffffffUL       // Maximum unsigned long value
 
 #define islower(c) ((c) >= 'a' && (c) <= 'z') 
 #define isupper(c) ((c) >= 'A' && (c) <= 'Z')
