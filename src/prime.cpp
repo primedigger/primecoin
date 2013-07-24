@@ -526,6 +526,9 @@ bool ProbablePrimeChainTest(const mpz_class& mpzPrimeChainOrigin, unsigned int n
             (nChainLengthCunningham2 + TargetFromInt(TargetGetLength(nChainLengthCunningham2)+1)) :
             (nChainLengthCunningham1 + TargetFromInt(TargetGetLength(nChainLengthCunningham1)));
 
+
+    printf("max chain length: %i\n", std::max(std::max(TargetGetLength(nChainLengthCunningham1),TargetGetLength(nChainLengthCunningham2)), TargetGetLength(nChainLengthBiTwin)));
+
     return (nChainLengthCunningham1 >= nBits || nChainLengthCunningham2 >= nBits || nChainLengthBiTwin >= nBits);
 }
 
@@ -626,9 +629,11 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
 
     printf("Have %i candidates after main loop\n", candidate_num);
 
+    unsigned int hostChainTest = 0;
+
     //FIXME: this is just for debugging, if condition should be replaced afterwards.
     //If we don't have this the client doesn't update the blockchain (because the CUDA part crashes right now)
-    if(candidate_num > 100)
+    if(candidate_num > 0)
     {
         cudaCandidate *cudaCandidateTransferArrayDevice = newDevicePointer<cudaCandidate>(candidate_num);
         char *resultsDevice = newDevicePointer<char>(candidate_num);
@@ -647,13 +652,15 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
 	printf("CUDA kernel round done\n");
 	fflush(stdout);
 
+
+
         for(int i=0; i < candidate_num; i++)
         {
             //scan the result array for possible chains as determined by the GPU
             if(resultsHost[i]==0x01)
             {
-		printf("resultsHost[i]==0x01\n");
-		fflush(stdout);
+		hostChainTest++;
+
                 unsigned int nChainLengthCunningham1 = 0;
                 unsigned int nChainLengthCunningham2 = 0;
                 unsigned int nChainLengthBiTwin = 0;
@@ -661,12 +668,14 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
                 mpzChainOrigin.set_str(cudaCandidateTransferArray[i].strChainOrigin,16);
                 if (ProbablePrimeChainTest(mpzChainOrigin, block.nBits, false, nChainLengthCunningham1, nChainLengthCunningham2, nChainLengthBiTwin))
                 {
+                    printf("[!] Probable prime chain found for block=%s!!\n  Target: %s\n  Length: (%s %s %s)\n", block.GetHash().GetHex().c_str(),
+                    TargetToString(block.nBits).c_str(), TargetToString(nChainLengthCunningham1).c_str(), TargetToString(nChainLengthCunningham2).c_str(), TargetToString(nChainLengthBiTwin).c_str());
+
                     //mpz_class mpzPrimeChainMultiplier = mpzFixedMultiplier * nTriedMultiplier;
                     CBigNum bnPrimeChainMultiplier;
                     bnPrimeChainMultiplier.SetHex(cudaCandidateTransferArray[i].strPrimeChainMultiplier);
                     block.bnPrimeChainMultiplier = bnPrimeChainMultiplier;
-                    printf("[!] Probable prime chain found for block=%s!!\n  Target: %s\n  Length: (%s %s %s)\n", block.GetHash().GetHex().c_str(),
-                    TargetToString(block.nBits).c_str(), TargetToString(nChainLengthCunningham1).c_str(), TargetToString(nChainLengthCunningham2).c_str(), TargetToString(nChainLengthBiTwin).c_str());
+
                     nProbableChainLength = std::max(std::max(nChainLengthCunningham1, nChainLengthCunningham2), nChainLengthBiTwin);
                     return true;
                 }
@@ -674,7 +683,7 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
         }
     }
 
-    printf("Cuda finished\n", candidate_num);
+    printf("Cuda finished with %i candidates (%i host chain tests)\n", candidate_num, hostChainTest);
 
     return false; // stop as timed out
 }

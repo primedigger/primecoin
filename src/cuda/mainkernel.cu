@@ -165,6 +165,8 @@ __device__ bool devFermatProbablePrimalityTest(mpz_t &mpzN, unsigned int& nLengt
 //this version prints results for thread 0
 __device__ bool devFermatProbablePrimalityTestWithPrint(mpz_t &mpzN, unsigned int& nLength, unsigned int index)
 {
+    bool prime = false;
+
     mpz_t mpzOne;
     mpz_t mpzTwo;
     //mpz_t mpzEight;
@@ -200,7 +202,6 @@ __device__ bool devFermatProbablePrimalityTestWithPrint(mpz_t &mpzN, unsigned in
 	mpz_print(&mpzE);
     }
 
-
     mpz_init(&mpzR);
 
     //BN_mod_exp(&r, &a, &e, &n);
@@ -217,15 +218,18 @@ __device__ bool devFermatProbablePrimalityTestWithPrint(mpz_t &mpzN, unsigned in
 
     if (mpz_cmp(&mpzR, &mpzOne) == 0)
     {
-        mpz_clear(&mpzN);
-        mpz_clear(&mpzE);
-        mpz_clear(&mpzR);
-        
-        printf("[CUDA] Fermat test true\n");
-        return true;
+	prime = true;  
+	if(index == 0)      
+        	printf("[0] Fermat test true\n");
     }
+
+    mpz_clear(&mpzN);
+    mpz_clear(&mpzE);
+    mpz_clear(&mpzR);
+
+    return prime;
     // Failed Fermat test, calculate fractional length
-    mpz_sub(&mpzE, &mpzN, &mpzR);
+    /*mpz_sub(&mpzE, &mpzN, &mpzR);
     mpz_mul_2exp(&mpzR, &mpzE, nFractionalBits);
     mpz_tdiv_q(&mpzE, &mpzR, &mpzN);
 
@@ -242,7 +246,7 @@ __device__ bool devFermatProbablePrimalityTestWithPrint(mpz_t &mpzN, unsigned in
     }
 
     nLength = (nLength & TARGET_LENGTH_MASK) | nFractionalLength;
-    return false;
+    return false;*/
 }
 
 // Test probable primality of n = 2p +/- 1 based on Euler, Lagrange and Lifchitz
@@ -395,7 +399,7 @@ __device__ bool devProbableCunninghamChainTest(mpz_t &n, bool fSophieGermain, bo
     if (!devFermatProbablePrimalityTest(N, nProbableChainLength))
         return false;
 
-    printf("[CUDA ]N is prime!\n");
+    printf("[CUDA ] N is prime!\n");
 
     // Euler-Lagrange-Lifchitz test for the following numbers in chain
     while (true)
@@ -471,6 +475,10 @@ __global__ void runCandidateSearch(cudaCandidate *candidates, char *result, unsi
     mpz_init(&mpzOne);
     mpz_set_ui(&mpzOne,1);
 
+    /*mpz_t mpzTwo;
+    mpz_init(&mpzTwo);
+    mpz_set_ui(&mpzTwo,2);*/
+
     mpz_t mpzN1;
     mpz_init(&mpzN1);
 
@@ -511,13 +519,34 @@ __global__ void runCandidateSearch(cudaCandidate *candidates, char *result, unsi
 		mpz_sub(&mpzN2,&mpzChainOrigin,&mpzOne);
 
 		unsigned int nLength=0;
+
+		char testresult = 0x00;
+
+		//test for chain of length two
 		if(devFermatProbablePrimalityTestWithPrint(mpzN1, nLength, index) || devFermatProbablePrimalityTestWithPrint(mpzN2, nLength, index))
 		{
-			result[index] = 0x01;
-		}else
-		{
-			result[index] = 0x00;
+			/*mpz_t mpzN1_copy;
+    			mpz_init(&mpzN1_copy);
+			mpz_set(&mpzN1_copy,&mpzN1);    
+
+			mpz_t mpzN2_copy;
+    			mpz_init(&mpzN2_copy);
+			mpz_set(&mpzN2_copy,&mpzN2);  
+
+        		mpz_mult_u(&mpzN1,&mpzN1_copy,2);
+			mpz_mult_u(&mpzN2,&mpzN2_copy,2);
+
+			mpz_addeq_i(&mpzN1,1);
+			mpz_addeq_i(&mpzN2,-1);
+
+			if(devFermatProbablePrimalityTestWithPrint(mpzN1, nLength, index) || devFermatProbablePrimalityTestWithPrint(mpzN2, nLength, index))
+			{*/
+				testresult = 0x01;
+			//}
 		}
+		
+		result[index] = testresult;
+		
 
 		if(index==0)
 			printf("[0] after fermat test\n");
@@ -544,6 +573,6 @@ __global__ void runCandidateSearch(cudaCandidate *candidates, char *result, unsi
 void runCandidateSearchKernel(cudaCandidate *candidates, char *result, unsigned int num_candidates)
 {
 	//TODO: make gridsize dynamic
-	runCandidateSearch<<< 12 , 40>>>(candidates, result, num_candidates);
+	runCandidateSearch<<< 24 , 40>>>(candidates, result, num_candidates);
 
 }

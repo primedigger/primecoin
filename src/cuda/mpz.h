@@ -153,8 +153,8 @@ __device__ __host__ inline void mpz_set_ui(mpz_t *mpz, unsigned int z) {
  * @brief Set the mpz integer based on the provided (hex) string.
  */
 __device__ __host__ void mpz_set_str(mpz_t *mpz, char *user_str, unsigned int index) {
-  unsigned int num_digits;
-  unsigned int i;
+  int num_digits;
+  int i;
   int is_zero;
 
   for (i = 0; i < mpz->capacity; i++) mpz->digits[i] = 0;
@@ -174,8 +174,8 @@ __device__ __host__ void mpz_set_str(mpz_t *mpz, char *user_str, unsigned int in
   int char_per_digit = LOG2_DIGIT_BASE / 4;
   num_digits = ((len - 1) / char_per_digit) +1;
 
-  if(index==0)
-  	printf("set_str: numdigits ==%i\n", num_digits );
+  //if(index==0)
+  //	printf("set_str: numdigits ==%i\n", num_digits );
   CHECK_MEM(mpz, num_digits);
 
   digits_set_zero(mpz->digits);
@@ -184,9 +184,14 @@ __device__ __host__ void mpz_set_str(mpz_t *mpz, char *user_str, unsigned int in
 
   for (i = 0; i < num_digits; i ++) {
     str[len - i * char_per_digit] = (char) 0;
-    char *start = str + (int) max(len - (i + 1) * char_per_digit, 0);
+
+    int offset = (int) max(len - (i + 1) * char_per_digit, 0);
+    char *start = str + offset;
 
     digit_t d = cuda_strtol(start, NULL, 16);
+
+    //if(index==0)
+//	printf("[0] digit %x from string %s offset %i\n", d, start,offset);
 
     /* keep track of whether or not every digit is zero */
     is_zero = is_zero && (d == 0);
