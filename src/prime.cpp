@@ -58,14 +58,16 @@ int isqrt(long n) {
 
 void GeneratePrimeTable()
 {
+
     nSieveSize = (int)GetArg("-sievesize", nDefaultSieveSize);
     nSieveSize = std::max(std::min(nSieveSize, nMaxSieveSize), nMinSieveSize);
     const unsigned nPrimeTableLimit = nSieveSize;
     vPrimes.clear();
 
-    /*std::vector<unsigned int> vPrimes_eras;
-    vPrimes_eras.clear();
+    //std::vector<unsigned int> vPrimes_eras;
+    //vPrimes_eras.clear();
     // Generate prime table using sieve of Eratosthenes
+
     std::vector<bool> vfComposite (nPrimeTableLimit, false);
     for (unsigned int nFactor = 2; nFactor * nFactor < nPrimeTableLimit; nFactor++)
     {
@@ -77,11 +79,11 @@ void GeneratePrimeTable()
 
     for (unsigned int n = 2; n < nPrimeTableLimit; n++)
         if (!vfComposite[n])
-            vPrimes_eras.push_back(n);*/
+            vPrimes.push_back(n);
 
     // Generate prime table using sieve of atkin
     // http://en.wikipedia.org/wiki/Sieve_of_Atkin
-    long n;
+    /*long n;
     unsigned int limit = isqrt(nPrimeTableLimit) +1;
     std::vector<bool> isPrime (nPrimeTableLimit, false);
 
@@ -128,7 +130,7 @@ void GeneratePrimeTable()
         if (isPrime[n])
             vPrimes.push_back(n);
     }
-
+*/
     printf("GeneratePrimeTable() : prime table [1, %d] generated with %lu primes", nPrimeTableLimit, vPrimes.size());
 
    /* bool error = false;
@@ -526,17 +528,18 @@ bool ProbablePrimeChainTest(const mpz_class& mpzPrimeChainOrigin, unsigned int n
             (nChainLengthCunningham2 + TargetFromInt(TargetGetLength(nChainLengthCunningham2)+1)) :
             (nChainLengthCunningham1 + TargetFromInt(TargetGetLength(nChainLengthCunningham1)));
 
-
-    printf("max chain length: %i\n", std::max(std::max(TargetGetLength(nChainLengthCunningham1),TargetGetLength(nChainLengthCunningham2)), TargetGetLength(nChainLengthBiTwin)));
-
     return (nChainLengthCunningham1 >= nBits || nChainLengthCunningham2 >= nBits || nChainLengthBiTwin >= nBits);
 }
+
 
 // Sieve for mining
 boost::thread_specific_ptr<CSieveOfEratosthenes> psieve;
 
 struct cudaCandidate cudaCandidateTransferArray[MAX_CANDIDATES];
 char resultsHost[MAX_CANDIDATES];
+
+mpz_class mpzPrimeChainMultipliers[MAX_CANDIDATES];
+mpz_class mpzChainOrigins[MAX_CANDIDATES];
 
 // Mine probable prime chain of form: n = h * p# +/- 1
 bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& fNewBlock, unsigned int& nTriedMultiplier, unsigned int& nProbableChainLength, unsigned int& nTests, unsigned int& nPrimesHit, unsigned int& nChainsHit, mpz_class& mpzHash)
@@ -575,31 +578,39 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
     //Search for candidates in this loop and transfer them to the GPU. If something interesting is found, check the result on the CPU.
 
     int candidate_num = -1;
-    while (nCurrent - nStart < 30000 && nCurrent >= nStart && pindexPrev == pindexBest && candidate_num < MAX_CANDIDATES)
+    while (/*nCurrent - nStart < 30000 && nCurrent >= nStart &&*/ pindexPrev == pindexBest && candidate_num < MAX_CANDIDATES)
     {
         nTests++;
+
         if (!psieve->GetNextCandidateMultiplier(nTriedMultiplier))
         {
+	    //TODO: put this below
             // power tests completed for the sieve
             psieve.reset();
             fNewBlock = true; // notify caller to change nonce
-	    //should try candidates on GPU before leaving here
+	    //TODO: should try candidates on GPU before leaving here
             return false;
         }
-	mpz_class mpzPrimeChainMultiplier = mpzFixedMultiplier * nTriedMultiplier;
-        mpzChainOrigin = mpzHash * mpzPrimeChainMultiplier;
-        unsigned int nChainLengthCunningham1 = 0;
+
+	candidate_num++;
+
+	mpzPrimeChainMultipliers[candidate_num] = mpzFixedMultiplier * nTriedMultiplier;
+        mpzChainOrigins[candidate_num] = mpzHash * mpzPrimeChainMultipliers[candidate_num];
+       /* unsigned int nChainLengthCunningham1 = 0;
         unsigned int nChainLengthCunningham2 = 0;
-        unsigned int nChainLengthBiTwin = 0;
-
-        candidate_num++;
-
+        unsigned int nChainLengthBiTwin = 0;*/
 
         //copy candidate to transfer array
-        mpz_get_str(cudaCandidateTransferArray[candidate_num].strChainOrigin,16,mpzChainOrigin.get_mpz_t());
-        mpz_get_str(cudaCandidateTransferArray[candidate_num].strPrimeChainMultiplier,16,mpzPrimeChainMultiplier.get_mpz_t());
+	#ifdef CUDA_DEBUG
+        mpz_get_str(cudaCandidateTransferArray[candidate_num].strChainOrigin,16,mpzChainOrigins[candidate_num].get_mpz_t());
+	#endif
+        //mpz_get_str(cudaCandidateTransferArray[candidate_num].strPrimeChainMultiplier,16,mpzPrimeChainMultiplier.get_mpz_t());
 
         cudaCandidateTransferArray[candidate_num].blocknBits = block.nBits;
+
+	mpz_export(&cudaCandidateTransferArray[candidate_num].chainOrigin.digits, NULL, 1, sizeof(cudaCandidateTransferArray[candidate_num].chainOrigin.digits), 0, 0, mpzChainOrigins[candidate_num].get_mpz_t());
+	cudaCandidateTransferArray[candidate_num].chainOrigin.capacity = DIGITS_CAPACITY;
+	cudaCandidateTransferArray[candidate_num].chainOrigin.sign = 0;
 
         //Apparantly we don't need these:
         //cudaCandidateTransferArray[candidate].nChainLengthCunningham1 = nChainLengthCunningham1;
@@ -618,11 +629,6 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
             nProbableChainLength = std::max(std::max(nChainLengthCunningham1, nChainLengthCunningham2), nChainLengthBiTwin);
             return true;
         }*/
-        nProbableChainLength = std::max(std::max(nChainLengthCunningham1, nChainLengthCunningham2), nChainLengthBiTwin);
-        if(TargetGetLength(nProbableChainLength) >= 1)
-            nPrimesHit++;
-        if(TargetGetLength(nProbableChainLength) >= nStatsChainLength)
-            nChainsHit++;
 
         nCurrent = GetTimeMicros();
     }
@@ -635,6 +641,12 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
     //If we don't have this the client doesn't update the blockchain (because the CUDA part crashes right now)
     if(candidate_num > 0)
     {
+	printf("Cuda start!\n");
+
+	int64 nStart, nCurrent;
+
+	nStart = GetTimeMicros();
+
         cudaCandidate *cudaCandidateTransferArrayDevice = newDevicePointer<cudaCandidate>(candidate_num);
         char *resultsDevice = newDevicePointer<char>(candidate_num);
         //memcpy to device
@@ -649,10 +661,12 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
 	cudaFree(resultsDevice);
 	cudaFree(cudaCandidateTransferArrayDevice);
 
-	printf("CUDA kernel round done\n");
+	nCurrent = GetTimeMicros();
+
+	double seconds = ((double)nCurrent - (double)nStart) / 1000.0;
+
+	printf("CUDA kernel round done in %f seconds (%f candidates per sec), Now testing results: \n", seconds, seconds/((double)candidate_num));
 	fflush(stdout);
-
-
 
         for(int i=0; i < candidate_num; i++)
         {
@@ -665,25 +679,50 @@ bool MineProbablePrimeChain(CBlock& block, mpz_class& mpzFixedMultiplier, bool& 
                 unsigned int nChainLengthCunningham2 = 0;
                 unsigned int nChainLengthBiTwin = 0;
 
-                mpzChainOrigin.set_str(cudaCandidateTransferArray[i].strChainOrigin,16);
-                if (ProbablePrimeChainTest(mpzChainOrigin, block.nBits, false, nChainLengthCunningham1, nChainLengthCunningham2, nChainLengthBiTwin))
+                //mpzChainOrigin.set_str(cudaCandidateTransferArray[i].strChainOrigin,16);
+		
+		/*mpz_t origin;
+		mpz_init(origin);
+		mpz_import(origin, 1, 1, sizeof(cudaCandidateTransferArray[i].chainOrigin), 0, 0, &cudaCandidateTransferArray[i].chainOrigin);
+		mpzChainOrigin = mpz_class(origin);
+		mpz_clear(origin);*/
+
+                if (ProbablePrimeChainTest(mpzChainOrigins[i], block.nBits, false, nChainLengthCunningham1, nChainLengthCunningham2, nChainLengthBiTwin))
                 {
                     printf("[!] Probable prime chain found for block=%s!!\n  Target: %s\n  Length: (%s %s %s)\n", block.GetHash().GetHex().c_str(),
                     TargetToString(block.nBits).c_str(), TargetToString(nChainLengthCunningham1).c_str(), TargetToString(nChainLengthCunningham2).c_str(), TargetToString(nChainLengthBiTwin).c_str());
 
                     //mpz_class mpzPrimeChainMultiplier = mpzFixedMultiplier * nTriedMultiplier;
                     CBigNum bnPrimeChainMultiplier;
-                    bnPrimeChainMultiplier.SetHex(cudaCandidateTransferArray[i].strPrimeChainMultiplier);
+                    bnPrimeChainMultiplier.SetHex(mpzPrimeChainMultipliers[i].get_str(16));
                     block.bnPrimeChainMultiplier = bnPrimeChainMultiplier;
 
                     nProbableChainLength = std::max(std::max(nChainLengthCunningham1, nChainLengthCunningham2), nChainLengthBiTwin);
                     return true;
                 }
+
+		nProbableChainLength = std::max(std::max(nChainLengthCunningham1, nChainLengthCunningham2), nChainLengthBiTwin);
+
+		int noChains = TargetGetLength(nProbableChainLength);
+
+		if(noChains == 0)
+			printf("CUDA ERROR: GPU returned composite number!\n");
+
+        	if(noChains >= 1)
+            		nPrimesHit++;
+		
+		if(noChains >= 2)
+			printf("nProbableChainLength >= 2: %i\n", noChains);
+
+        	if(noChains >= nStatsChainLength)
+            		nChainsHit++;
+		
             }
         }
     }
 
-    printf("Cuda finished with %i candidates (%i host chain tests)\n", candidate_num, hostChainTest);
+    printf("Cuda+host test round finished with %i candidates (%i host chain tests)\n", candidate_num, hostChainTest);
+    fflush(stdout);
 
     return false; // stop as timed out
 }
@@ -733,6 +772,7 @@ bool CheckPrimeProofOfWork(uint256& hashBlockHeader, unsigned int nBits, const m
         return error("CheckPrimeProofOfWork() : failed Fermat-only double check target=%s length=(%s %s %s) lengthFermat=(%s %s %s)", TargetToString(nBits).c_str(), 
             TargetToString(nChainLengthCunningham1).c_str(), TargetToString(nChainLengthCunningham2).c_str(), TargetToString(nChainLengthBiTwin).c_str(),
             TargetToString(nChainLengthCunningham1FermatTest).c_str(), TargetToString(nChainLengthCunningham2FermatTest).c_str(), TargetToString(nChainLengthBiTwinFermatTest).c_str());
+
 
     // Select the longest primechain from the three chain types
     nChainLength = nChainLengthCunningham1;
@@ -973,6 +1013,7 @@ bool CSieveOfEratosthenes::Weave()
         }
     }
     
+
     this->nPrimeSeq = nPrimes - 1;
     
     mpz_clear(mpzFixedFactor);
