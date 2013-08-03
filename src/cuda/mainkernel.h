@@ -1,6 +1,6 @@
 #define MAX_CANDIDATES 2400
 
-#define DIGITS_CAPACITY 30
+#define DIGITS_CAPACITY 16
 
 /** @brief struct used to represent multiple precision integers (Z). */
 typedef struct {  
