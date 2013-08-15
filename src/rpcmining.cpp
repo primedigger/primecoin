@@ -8,6 +8,7 @@
 #include "db.h"
 #include "init.h"
 #include "bitcoinrpc.h"
+#include "prime.h"
 
 using namespace json_spirit;
 using namespace std;
@@ -49,6 +50,61 @@ Value setgenerate(const Array& params, bool fHelp)
 }
 
 
+Value getsievepercentage(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() != 0)
+        throw runtime_error(
+            "getsievepercentage\n"
+            "Returns the current sieve percentage used by the mining algorithm.");
+
+    return (boost::int64_t)nSievePercentage;
+}
+
+
+Value setsievepercentage(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1)
+        throw runtime_error(
+            "setsievepercentage <sievepercentage>\n"
+            "<sievepercentage> determines how many rounds the candidate multiplier sieve runs.");
+
+    unsigned int nPercentage = nDefaultSievePercentage;
+    if (params.size() > 0)
+        nPercentage = params[0].get_int();
+
+    nSievePercentage = nPercentage;
+    return Value::null;
+}
+
+
+Value getroundsievepercentage(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() != 0)
+        throw runtime_error(
+            "getroundsievepercentage\n"
+            "Returns the current sieve generation time percentage used by the mining algorithm.");
+
+    return (boost::int64_t)nRoundSievePercentage;
+}
+
+
+Value setroundsievepercentage(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() < 1)
+        throw runtime_error(
+            "setroundsievepercentage <roundsievepercentage>\n"
+            "<roundsievepercentage> determines much time should be spent generating the sieve of candidate multipliers.\n"
+            "The round primorial is dynamically adjusted based on this value.");
+
+    unsigned int nPercentage = nDefaultRoundSievePercentage;
+    if (params.size() > 0)
+        nPercentage = params[0].get_int();
+
+    nRoundSievePercentage = nPercentage;
+    return Value::null;
+}
+
+
 Value getprimespersec(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() != 0)
@@ -56,10 +112,22 @@ Value getprimespersec(const Array& params, bool fHelp)
             "getprimespersec\n"
             "Returns a recent primes per second performance measurement while generating.");
 
-    if (GetTimeMillis() - nHPSTimerStart > 120000)
-        return (boost::int64_t)0;
     return (boost::int64_t)dPrimesPerSec;
 }
+
+
+Value getchainspermin(const Array& params, bool fHelp)
+{
+    if (fHelp || params.size() != 0)
+        throw runtime_error(
+            "getchainspermin\n"
+            "Returns a recent chains per second performance measurement while generating.");
+
+    return (boost::int64_t)dChainsPerMinute;
+}
+
+
+extern Value getdifficulty(const Array& params, bool fHelp);
 
 
 Value getmininginfo(const Array& params, bool fHelp)
@@ -71,13 +139,19 @@ Value getmininginfo(const Array& params, bool fHelp)
 
     Object obj;
     obj.push_back(Pair("blocks",        (int)nBestHeight));
+    obj.push_back(Pair("chainspermin",  getchainspermin(params, false)));
+    obj.push_back(Pair("chainsperday",  dChainsPerDay));
     obj.push_back(Pair("currentblocksize",(uint64_t)nLastBlockSize));
     obj.push_back(Pair("currentblocktx",(uint64_t)nLastBlockTx));
+    obj.push_back(Pair("difficulty",    getdifficulty(params, false)));
     obj.push_back(Pair("errors",        GetWarnings("statusbar")));
     obj.push_back(Pair("generate",      GetBoolArg("-gen")));
     obj.push_back(Pair("genproclimit",  (int)GetArg("-genproclimit", -1)));
+    obj.push_back(Pair("roundsievepercentage",(int)nRoundSievePercentage));
     obj.push_back(Pair("primespersec",  getprimespersec(params, false)));
     obj.push_back(Pair("pooledtx",      (uint64_t)mempool.size()));
+    obj.push_back(Pair("sievepercentage",(int)nSievePercentage));
+    obj.push_back(Pair("sievesize",     (int)nSieveSize));
     obj.push_back(Pair("testnet",       fTestNet));
     return obj;
 }

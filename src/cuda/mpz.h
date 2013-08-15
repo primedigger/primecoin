@@ -101,6 +101,12 @@ __device__ __host__ void mpz_init(mpz_cuda_t *mpz) {
   mpz->sign = MPZ_NONNEGATIVE; 
 }
 
+__device__ __host__ void mpz_init_wide(mpz_cuda_t *mpz) {
+  mpz->capacity = DIGITS_CAPACITY*2;
+  digits_set_zero(mpz->digits); 
+  mpz->sign = MPZ_NONNEGATIVE; 
+}
+
 /**
  * @brief Assign an mpz_cuda_t struct to the value of another mpz_cuda_t struct.
  */

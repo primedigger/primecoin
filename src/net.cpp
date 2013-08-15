@@ -1193,7 +1193,8 @@ void MapPort(bool)
 // The second name should resolve to a list of seed addresses.
 static const char *strMainNetDNSSeed[][2] = {
     {"primecoin.net", "seed.ppcoin.net"},
-    {"altcointech.net", "dnsseed.xpm.altcointech.net"},
+    {"xpm.altcointech.net", "dnsseed.xpm.altcointech.net"},
+    {"xpm2.altcointech.net", "dnsseed.xpm2.altcointech.net"},
     {NULL, NULL}
 };
 
@@ -1247,7 +1248,8 @@ void ThreadDNSAddressSeed()
 
 unsigned int pnSeedMainNet[] =
 {
-    0x201621b2,
+    0x201621b2, 0x3a38be58, 0xde3cc718, 0x732dfb54, 0xf3c645d3, 0x48926257,
+    0x746f1f4e, 0xaed7175e,
 };
 
 unsigned int pnSeedTestNet[] =
@@ -1652,14 +1654,15 @@ bool BindListenPort(const CService &addrBind, string& strError)
     // some systems don't have IPV6_V6ONLY but are always v6only; others do have the option
     // and enable it by default or not. Try to enable it, if possible.
     if (addrBind.IsIPv6()) {
-#ifdef IPV6_V6ONLY
-        setsockopt(hListenSocket, IPPROTO_IPV6, IPV6_V6ONLY, (void*)&nOne, sizeof(int));
-#endif
 #ifdef WIN32
         int nProtLevel = 10 /* PROTECTION_LEVEL_UNRESTRICTED */;
         int nParameterId = 23 /* IPV6_PROTECTION_LEVEl */;
         // this call is allowed to fail
         setsockopt(hListenSocket, IPPROTO_IPV6, nParameterId, (const char*)&nProtLevel, sizeof(int));
+#else
+#ifdef IPV6_V6ONLY
+        setsockopt(hListenSocket, IPPROTO_IPV6, IPV6_V6ONLY, (void*)&nOne, sizeof(int));
+#endif
 #endif
     }
 #endif
